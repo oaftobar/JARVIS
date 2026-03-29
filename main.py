@@ -4,17 +4,19 @@ import os
 from dotenv import load_dotenv
 from google import genai
 from google.genai import types
+from rich.console import Console
 
 from config import __version__, MODEL_NAME
 from prompts import system_prompt
 from functions.get_files_info import schema_get_files_info
 from functions.call_function import available_functions, call_function
 
+console = Console()
 JARVIS_PREFIX = "[JARVIS]"
 
 
 def jarvis_say(message):
-    print(f"{JARVIS_PREFIX} {message}")
+    console.print(f"[cyan]{JARVIS_PREFIX}[/cyan] {message}")
 
 
 def main():
@@ -31,10 +33,13 @@ def main():
     )
     args = parser.parse_args()
 
+    console.print(f"[bold cyan]JARVIS AI Assistant v{__version__}[/bold cyan]")
+
     load_dotenv()
     api_key = os.environ.get("GEMINI_API_KEY")
     if not api_key:
-        raise RuntimeError("GEMINI_API_KEY environment variable not set")
+        console.print("[red]Error: GEMINI_API_KEY environment variable not set[/red]")
+        return 1
 
     client = genai.Client(api_key=api_key)
 
@@ -50,7 +55,8 @@ def interactive_mode(client, verbose):
 
     while True:
         try:
-            user_input = input("> ")
+            console.print("[yellow]> [/yellow]", end="")
+            user_input = input("")
         except (KeyboardInterrupt, EOFError):
             jarvis_say("Going offline, sir.")
             break
@@ -73,7 +79,7 @@ def run_prompt(client, user_prompt, verbose):
     messages = [types.Content(role="user", parts=[types.Part(text=user_prompt)])]
 
     if verbose:
-        print(f"[DEBUG] User: {user_prompt}\n")
+        console.print(f"[dim][DEBUG] User: {user_prompt}[/dim]\n")
 
     for _ in range(20):
         response = generate_content(client, messages, verbose)
@@ -89,25 +95,28 @@ def run_prompt(client, user_prompt, verbose):
                 function_call_result = call_function(function_call, verbose)
 
                 if not function_call_result.parts:
-                    raise RuntimeError("Function call returned no parts")
+                    console.print("[red]Error: Function call returned no parts[/red]")
+                    return 1
 
                 func_response = function_call_result.parts[0].function_response
                 if not func_response:
-                    raise RuntimeError("Function response is None")
+                    console.print("[red]Error: Function response is None[/red]")
+                    return 1
 
                 if not func_response.response:
-                    raise RuntimeError("Response is None")
+                    console.print("[red]Error: Response is None[/red]")
+                    return 1
 
                 function_responses.append(function_call_result.parts[0])
 
                 if verbose:
-                    print(f"-> {func_response.response}")
+                    console.print(f"[dim]-> {func_response.response}[/dim]")
 
             messages.append(types.Content(role="user", parts=function_responses))
         else:
             jarvis_say("Task complete, sir.")
-            print()
-            print(response.text)
+            console.print()
+            console.print(response.text)
             return
     else:
         jarvis_say("Maximum iterations reached. I appear to be stuck in a loop, sir.")
@@ -123,11 +132,16 @@ def generate_content(client, messages, verbose):
         ),
     )
     if not response.usage_metadata:
-        raise RuntimeError("Gemini API response appears to be malformed")
+        console.print("[red]Error: Gemini API response appears to be malformed[/red]")
+        return None
 
     if verbose:
-        print("Prompt tokens:", response.usage_metadata.prompt_token_count)
-        print("Response tokens:", response.usage_metadata.candidates_token_count)
+        console.print(
+            f"[dim]Prompt tokens: {response.usage_metadata.prompt_token_count}[/dim]"
+        )
+        console.print(
+            f"[dim]Response tokens: {response.usage_metadata.candidates_token_count}[/dim]"
+        )
 
     return response
 
